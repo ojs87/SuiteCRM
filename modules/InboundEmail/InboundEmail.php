@@ -4675,34 +4675,10 @@ class InboundEmail extends SugarBean
      * @param string textHeader Headers in normal text format
      * @return bool
      */
-    public function importDupeCheck($message_id, $header, $textHeader)
+    public function importDupeCheck($header, $textHeader)
     {
         $GLOBALS['log']->debug('*********** InboundEmail doing dupe check.');
-
-        // generate "delivered-to" seed for email duplicate check
-        $deliveredTo = $this->id; // cn: bug 12236 - cc's failing dupe check
-        $exHeader = explode("\n", $textHeader);
-
-        foreach ($exHeader as $headerLine) {
-            if (strpos(strtolower($headerLine), 'delivered-to:') !== false) {
-                $deliveredTo = substr($headerLine, strpos($headerLine, " "), strlen($headerLine));
-                $GLOBALS['log']->debug('********* InboundEmail found [ ' . $deliveredTo . ' ] as the destination address for email [ ' . $message_id . ' ]');
-            } elseif (strpos(strtolower($headerLine), 'x-real-to:') !== false) {
-                $deliveredTo = substr($headerLine, strpos($headerLine, " "), strlen($headerLine));
-                $GLOBALS['log']->debug('********* InboundEmail found [ ' . $deliveredTo . ' ] for non-standards compliant email x-header [ ' . $message_id . ' ]');
-            }
-        }
-
-        $message_id = $this->getMessageId($header);
-
-        // generate compound messageId
-        $this->compoundMessageId = trim($message_id) . trim($deliveredTo);
-        if (empty($this->compoundMessageId)) {
-            $GLOBALS['log']->error('Inbound Email found a message without a header and message_id');
-
-            return false;
-        } // if
-        $this->compoundMessageId = md5($this->compoundMessageId);
+        $this->getCompoundMessageId($header, $textHeader);
 
         $query = 'SELECT count(emails.id) AS c FROM emails WHERE emails.message_id = \'' . $this->compoundMessageId . '\' and emails.deleted = 0';
         $results = $this->db->query($query, true);
@@ -4893,7 +4869,6 @@ class InboundEmail extends SugarBean
         }
         $header = $this->getImap()->getHeaderInfo($msgNo);
         $fullHeader = $this->getImap()->fetchHeader($msgNo); // raw headers
-        $message_id = isset($header->message_id) ? $header->message_id : '';
 
         // reset inline images cache
         $this->inlineImages = array();
@@ -4906,7 +4881,7 @@ class InboundEmail extends SugarBean
 
             return "";
         }
-        $dupeCheckResult = $this->importDupeCheck($message_id, $header, $fullHeader);
+        $dupeCheckResult = $this->importDupeCheck($header, $fullHeader);
         if (!$dupeCheckResult && !empty($this->compoundMessageId)) {
             // we have a duplicate email
             $query = 'SELECT id FROM emails WHERE emails.message_id = \'' . $this->compoundMessageId . '\' and emails.deleted = 0';
@@ -4990,7 +4965,7 @@ class InboundEmail extends SugarBean
         ///////////////////////////////////////////////////////////////////////
         ////	DUPLICATE CHECK
         $message_id = isset($header->message_id) ? $header->message_id : '';
-        $dupeCheckResult = $this->importDupeCheck($message_id, $header, $fullHeader);
+        $dupeCheckResult = $this->importDupeCheck($header, $fullHeader);
         if ($forDisplay || $dupeCheckResult) {
             $GLOBALS['log']->debug('*********** NO duplicate found, continuing with processing.');
 
@@ -5269,7 +5244,7 @@ class InboundEmail extends SugarBean
 
         ///////////////////////////////////////////////////////////////////////
         ////	DUPLICATE CHECK
-        $dupeCheckResult = $this->importDupeCheck($message_id, $header, $fullHeader);
+        $dupeCheckResult = $this->importDupeCheck($header, $fullHeader);
         if ($forDisplay || $dupeCheckResult) {
             $GLOBALS['log']->debug('*********** NO duplicate found, continuing with processing.');
 
@@ -7935,24 +7910,7 @@ eoq;
                     $uid = $this->getImap()->getUid($msgNo);
                     $header = $this->getImap()->headerInfo($msgNo);
                     $fullHeader = $this->getImap()->fetchHeader($msgNo);
-                    $message_id = isset($header->message_id) ? $header->message_id : '';
-                    $deliveredTo = $this->id;
-                    $matches = array();
-                    preg_match('/(delivered-to:|x-real-to:){1}\s*(\S+)\s*\n{1}/im', $fullHeader, $matches);
-                    if (count($matches)) {
-                        $deliveredTo = $matches[2];
-                    }
-                    if (empty($message_id) || !isset($message_id)) {
-                        $GLOBALS['log']->debug('*********** NO MESSAGE_ID.');
-                        $message_id = $this->getMessageId($header);
-                    }
-
-                    // generate compound messageId
-                    $this->compoundMessageId = trim($message_id) . trim($deliveredTo);
-                    // if the length > 255 then md5 it so that the data will be of smaller length
-                    if (strlen($this->compoundMessageId) > 255) {
-                        $this->compoundMessageId = md5($this->compoundMessageId);
-                    } // if
+                    $this->getCompoundMessageId($header, $fullHeader);
 
                     if (empty($this->compoundMessageId)) {
                         break;
@@ -8089,5 +8047,33 @@ eoq;
         }
 
         return $uid;
+    }
+
+    public function getCompoundMessageId($header, $textHeader)
+    {
+        // generate "delivered-to" seed for email duplicate check
+        $deliveredTo = $this->id; // cn: bug 12236 - cc's failing dupe check
+        $exHeader = explode("\n", $textHeader);
+
+        foreach ($exHeader as $headerLine) {
+            if (strpos(strtolower($headerLine), 'delivered-to:') !== false) {
+                $deliveredTo = substr($headerLine, strpos($headerLine, " "), strlen($headerLine));
+                $GLOBALS['log']->debug('********* InboundEmail found [ ' . $deliveredTo . ' ] as the destination address for email [ ' . $message_id . ' ]');
+            } elseif (strpos(strtolower($headerLine), 'x-real-to:') !== false) {
+                $deliveredTo = substr($headerLine, strpos($headerLine, " "), strlen($headerLine));
+                $GLOBALS['log']->debug('********* InboundEmail found [ ' . $deliveredTo . ' ] for non-standards compliant email x-header [ ' . $message_id . ' ]');
+            }
+        }
+
+        $message_id = $this->getMessageId($header);
+
+        // generate compound messageId
+        $this->compoundMessageId = trim($message_id) . trim($deliveredTo);
+        if (empty($this->compoundMessageId)) {
+            $GLOBALS['log']->error('Inbound Email found a message without a header and message_id');
+
+            return false;
+        } // if
+        $this->compoundMessageId = md5($this->compoundMessageId);
     }
 } // end class definition

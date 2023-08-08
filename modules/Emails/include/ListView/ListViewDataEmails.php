@@ -592,10 +592,14 @@ class ListViewDataEmails extends ListViewData
                 $db = DBManagerFactory::getInstance();
 
                 $uid = $emailHeader['uid'];
+                $fullHeader = $inboundEmail->getImap()->fetchHeader($emailHeader['msgno']);
+                $header = $inboundEmail->getImap()->rfc822ParseHeaders($fullHeader);
+                $inboundEmail->getCompoundMessageId($header, $fullHeader);
+
                 $importedEmailBeans = BeanFactory::getBean('Emails');
                 $is_imported = $importedEmailBeans->get_full_list(
                     '',
-                    'emails.uid LIKE ' . $db->quoted($uid) . ' AND emails.mailbox_id = ' . $db->quoted($inboundEmail->id)
+                    'emails.message_id LIKE ' . $db->quoted($inboundEmail->compoundMessageId) . ' AND emails.mailbox_id = ' . $db->quoted($inboundEmail->id)
                 );
 
                 if (null === $is_imported) {
